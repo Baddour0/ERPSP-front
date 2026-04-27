@@ -15,7 +15,7 @@ function renderLayout(pageTitle, pageIcon = '📄') {
   const sidebar = `
 <aside class="sidebar" id="sidebar">
   <div class="sidebar-logo">
-    <div class="logo-icon">E</div>
+    <div class="logo-icon"><img src="img/logo.png" alt="ERPSB Logo" onerror="this.src='https://via.placeholder.com/36x36?text=SB'"></div>
     <div>
       <div class="logo-text">ERPSB</div>
       <div class="logo-sub">${getTenant()}</div>

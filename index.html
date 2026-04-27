@@ -1,0 +1,160 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8"/>
+  <meta name="viewport" content="width=device-width,initial-scale=1"/>
+  <title>ERP Login — ERPSB</title>
+  <meta name="description" content="Sign in to your ERPSB multi-tenant ERP system"/>
+  <link rel="stylesheet" href="css/main.css"/>
+  <style>
+    .tenant-pills { display:flex; gap:8px; flex-wrap:wrap; margin-top:8px; }
+    .tenant-pill {
+      padding:4px 12px; border-radius:20px; font-size:12px; font-weight:600;
+      border:1px solid var(--border); background:var(--bg-elevated);
+      color:var(--text-secondary); cursor:pointer; transition:all var(--transition);
+    }
+    .tenant-pill:hover, .tenant-pill.selected {
+      background:var(--accent-dim); color:var(--accent-light); border-color:var(--accent);
+    }
+    .features { display:grid; grid-template-columns:1fr 1fr; gap:10px; margin-top:28px; }
+    .feature-item {
+      display:flex; align-items:flex-start; gap:8px;
+      padding:10px 12px; border-radius:var(--radius-sm);
+      background:var(--bg-elevated); border:1px solid var(--border);
+      font-size:12px;
+    }
+    .feature-item .fi-icon { font-size:16px; flex-shrink:0; margin-top:1px; }
+    .feature-item .fi-text .fi-title { font-weight:600; font-size:12.5px; }
+    .feature-item .fi-text .fi-sub { color:var(--text-muted); font-size:11px; margin-top:1px; }
+    .brand-strip {
+      margin-top:24px; text-align:center;
+      font-size:11px; color:var(--text-muted);
+    }
+  </style>
+</head>
+<body>
+<div class="login-page">
+  <div style="width:100%;max-width:480px;padding:20px;">
+    <div class="login-card">
+      <!-- Logo -->
+      <div class="login-logo">
+        <div class="logo-icon">E</div>
+      </div>
+      <h2>Welcome to ERPSB</h2>
+      <p class="login-sub">Enterprise Resource Planning — Multi-Tenant</p>
+
+      <!-- Alert -->
+      <div id="login-alert" class="hidden"></div>
+
+      <!-- Form -->
+      <form id="login-form" autocomplete="off">
+        <div class="form-group">
+          <label class="form-label" for="tenant-input">🏢 Tenant / Organization</label>
+          <input id="tenant-input" class="form-control" type="text"
+                 placeholder="e.g. acme-corp" value="demo" required/>
+          <div class="tenant-pills" id="tenant-pills">
+            <span class="tenant-pill selected" data-t="demo">demo</span>
+            <span class="tenant-pill" data-t="acme">acme</span>
+            <span class="tenant-pill" data-t="globex">globex</span>
+          </div>
+        </div>
+
+        <div class="login-divider">credentials</div>
+
+        <div class="form-group">
+          <label class="form-label" for="email-input">📧 Email</label>
+          <input id="email-input" class="form-control" type="email"
+                 placeholder="admin@company.com" value="admin@demo.com" required/>
+        </div>
+        <div class="form-group">
+          <label class="form-label" for="pass-input">🔒 Password</label>
+          <input id="pass-input" class="form-control" type="password"
+                 placeholder="••••••••" value="password" required/>
+        </div>
+
+        <button type="submit" class="btn btn-primary w-full" id="login-btn" style="justify-content:center;padding:11px;">
+          Sign In to Dashboard
+        </button>
+      </form>
+
+      <!-- Features -->
+      <div class="features">
+        <div class="feature-item">
+          <span class="fi-icon">📊</span>
+          <div class="fi-text">
+            <div class="fi-title">Dashboard</div>
+            <div class="fi-sub">Real-time KPIs & charts</div>
+          </div>
+        </div>
+        <div class="feature-item">
+          <span class="fi-icon">🧾</span>
+          <div class="fi-text">
+            <div class="fi-title">Invoicing</div>
+            <div class="fi-sub">Full invoice lifecycle</div>
+          </div>
+        </div>
+        <div class="feature-item">
+          <span class="fi-icon">👥</span>
+          <div class="fi-text">
+            <div class="fi-title">Partners</div>
+            <div class="fi-sub">Customers & vendors</div>
+          </div>
+        </div>
+        <div class="feature-item">
+          <span class="fi-icon">📒</span>
+          <div class="fi-text">
+            <div class="fi-title">Accounting</div>
+            <div class="fi-sub">Double-entry ledger</div>
+          </div>
+        </div>
+      </div>
+
+      <div class="brand-strip">
+        ERPSB © 2024 · Multi-Tenant ERP · All rights reserved
+      </div>
+    </div>
+  </div>
+</div>
+
+<script src="js/app.js"></script>
+<script>
+  // Tenant pills
+  document.querySelectorAll('.tenant-pill').forEach(p => {
+    p.addEventListener('click', () => {
+      document.querySelectorAll('.tenant-pill').forEach(x=>x.classList.remove('selected'));
+      p.classList.add('selected');
+      document.getElementById('tenant-input').value = p.dataset.t;
+    });
+  });
+
+  // Login form
+  document.getElementById('login-form').addEventListener('submit', async e => {
+    e.preventDefault();
+    const btn = document.getElementById('login-btn');
+    const alert = document.getElementById('login-alert');
+    const tenant = document.getElementById('tenant-input').value.trim();
+    const email  = document.getElementById('email-input').value.trim();
+    const pass   = document.getElementById('pass-input').value;
+
+    btn.textContent = 'Signing in…';
+    btn.disabled = true;
+    alert.className = 'hidden';
+
+    setTenant(tenant);
+
+    // Try real API first
+    const res = await api.post('/api/auth/login', { email, password: pass });
+    if (res?.token) {
+      store.set(TOKEN_KEY, res.token);
+      window.location.href = 'dashboard.html';
+      return;
+    }
+
+    // Offline / demo mode — bypass auth
+    store.set(TOKEN_KEY, 'demo-token');
+    store.set('erp_user', JSON.stringify({ name: email.split('@')[0], role: 'Admin' }));
+    window.location.href = 'dashboard.html';
+  });
+</script>
+</body>
+</html>

@@ -1,0 +1,196 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8"/>
+  <meta name="viewport" content="width=device-width,initial-scale=1"/>
+  <title>Journal Entries — ERPSB</title>
+  <meta name="description" content="Double-entry accounting journal ledger for ERPSB ERP"/>
+  <link rel="stylesheet" href="css/main.css"/>
+  <style>
+    .je-ref { font-family:'Courier New',monospace; font-size:12px; color:var(--accent-light); font-weight:700; }
+    .je-desc { font-size:13px; font-weight:600; flex:1; }
+    .je-date { font-size:12px; color:var(--text-muted); }
+    .je-totals { display:flex; gap:16px; font-size:12px; margin-left:auto; }
+    .je-total-debit  { color:var(--danger);  font-weight:700; }
+    .je-total-credit { color:var(--success); font-weight:700; }
+    .je-toggle { color:var(--text-muted); font-size:12px; cursor:pointer; padding:4px 8px; border-radius:4px; }
+    .je-toggle:hover { background:var(--bg-elevated); }
+    .trial-balance { display:grid; grid-template-columns:1fr 130px 130px; gap:0; }
+    .tb-header { font-size:11px; text-transform:uppercase; letter-spacing:0.06em; color:var(--text-muted); padding:8px 14px; border-bottom:2px solid var(--border); text-align:right; }
+    .tb-header:first-child { text-align:left; }
+    .tb-row { display:contents; }
+    .tb-row > div { padding:9px 14px; border-bottom:1px solid var(--border); font-size:13.5px; }
+    .tb-row > div:last-child,.tb-row > div:nth-last-child(2) { text-align:right; font-weight:600; font-variant-numeric:tabular-nums; }
+    .tb-footer > div { padding:10px 14px; font-weight:800; font-size:14px; border-top:2px solid var(--border); }
+    .tb-footer > div:last-child,.tb-footer > div:nth-last-child(2) { text-align:right; color:var(--accent-light); }
+  </style>
+</head>
+<body>
+<div id="page-root">
+  <div class="page-content">
+
+    <div class="page-header">
+      <div class="page-header-left">
+        <div class="breadcrumb">Finance / Journal</div>
+        <h1>Journal Entries</h1>
+      </div>
+      <div class="flex gap-2">
+        <button class="btn btn-ghost btn-sm" onclick="switchTab('journal')" id="tb-journal">📋 Journal</button>
+        <button class="btn btn-ghost btn-sm" onclick="switchTab('trial')"   id="tb-trial">⚖️ Trial Balance</button>
+        <button class="btn btn-primary">+ New Entry</button>
+      </div>
+    </div>
+
+    <!-- Journal View -->
+    <div id="view-journal" class="page-content">
+      <div class="filters-bar card mb-4" style="border-radius:var(--radius-lg);">
+        <input class="form-control" id="je-search" style="width:240px;padding:5px 10px;font-size:12.5px;"
+               placeholder="🔍 Search journal entries…" oninput="renderJournal()"/>
+        <input class="form-control" id="je-from" type="date" style="width:160px;padding:5px 10px;font-size:12.5px;" oninput="renderJournal()"/>
+        <span style="color:var(--text-muted);font-size:12px;">to</span>
+        <input class="form-control" id="je-to" type="date"   style="width:160px;padding:5px 10px;font-size:12.5px;" oninput="renderJournal()"/>
+        <div class="ml-auto" id="je-balance-check"></div>
+      </div>
+
+      <div id="journal-list"></div>
+    </div>
+
+    <!-- Trial Balance View -->
+    <div id="view-trial" class="hidden">
+      <div class="card">
+        <div class="card-header">
+          <h3>Trial Balance</h3>
+          <span style="font-size:12px;color:var(--text-muted);">As of today</span>
+        </div>
+        <div class="card-body" style="padding:0;">
+          <div class="trial-balance" id="trial-balance-grid">
+            <div class="tb-header" style="text-align:left;">Account</div>
+            <div class="tb-header">Debit</div>
+            <div class="tb-header">Credit</div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+  </div>
+</div>
+
+<script src="js/app.js"></script>
+<script src="js/layout.js"></script>
+<script>
+renderLayout('Journal Entries', '📋');
+
+let allEntries = [];
+const openEntries = new Set();
+
+async function init() {
+  allEntries = (await api.journal.list()) || mock.journal;
+  renderJournal();
+  renderTrialBalance();
+}
+
+function getFiltered() {
+  const q    = (document.getElementById('je-search')?.value||'').toLowerCase();
+  const from = document.getElementById('je-from')?.value;
+  const to   = document.getElementById('je-to')?.value;
+  return allEntries.filter(je => {
+    if (q && !je.description?.toLowerCase().includes(q) && !je.reference?.toLowerCase().includes(q)) return false;
+    if (from && je.date < from) return false;
+    if (to   && je.date > to)   return false;
+    return true;
+  });
+}
+
+function renderJournal() {
+  const entries = getFiltered();
+
+  // Balance check
+  let totalDebit=0, totalCredit=0;
+  entries.forEach(je => je.lines?.forEach(l => { totalDebit+=l.debit||0; totalCredit+=l.credit||0; }));
+  const balanced = Math.abs(totalDebit-totalCredit)<0.01;
+  document.getElementById('je-balance-check').innerHTML = `
+    <span style="font-size:12px;font-weight:600;color:${balanced?'var(--success)':'var(--danger)'}">
+      ${balanced?'✅ Balanced':'⚠️ Out of Balance'} · Dr: ${fmt.currency(totalDebit)} / Cr: ${fmt.currency(totalCredit)}
+    </span>`;
+
+  document.getElementById('journal-list').innerHTML = entries.length ? entries.map(je => {
+    const jeDebit  = (je.lines||[]).reduce((s,l)=>s+(l.debit||0),0);
+    const jeCredit = (je.lines||[]).reduce((s,l)=>s+(l.credit||0),0);
+    const isOpen   = openEntries.has(je.id);
+    const lines    = (je.lines||[]).map(l => `
+      <div class="journal-line-row">
+        <span style="color:var(--text-secondary)">${l.account?.code||''} · ${l.account?.name||'—'}</span>
+        <span class="debit">${l.debit  ? fmt.currency(l.debit)  : ''}</span>
+        <span class="credit">${l.credit ? fmt.currency(l.credit) : ''}</span>
+      </div>
+    `).join('');
+    return `
+      <div class="journal-entry">
+        <div class="journal-entry-header" onclick="toggleEntry('${je.id}')">
+          <span class="je-ref">${je.reference}</span>
+          <span class="je-date">${fmt.date(je.date)}</span>
+          <span class="je-desc">${je.description||'—'}</span>
+          <div class="je-totals">
+            <span class="je-total-debit">Dr ${fmt.currency(jeDebit)}</span>
+            <span class="je-total-credit">Cr ${fmt.currency(jeCredit)}</span>
+          </div>
+          <span class="je-toggle">${isOpen?'▲':'▼'}</span>
+        </div>
+        <div class="journal-entry-body" style="display:${isOpen?'block':'none'}">
+          <div style="display:grid;grid-template-columns:1fr 130px 130px;padding:6px 16px 6px 32px;font-size:10px;text-transform:uppercase;letter-spacing:0.06em;color:var(--text-muted);border-top:1px solid var(--border);">
+            <span>Account</span><span style="text-align:right;">Debit</span><span style="text-align:right;">Credit</span>
+          </div>
+          ${lines}
+        </div>
+      </div>
+    `;
+  }).join('') : `<div class="empty-state card"><div class="empty-icon">📋</div><p>No journal entries found</p></div>`;
+}
+
+function toggleEntry(id) {
+  if (openEntries.has(id)) openEntries.delete(id); else openEntries.add(id);
+  renderJournal();
+}
+
+function renderTrialBalance() {
+  const accounts = mock.accounts;
+  const maxAbs   = Math.max(...accounts.map(a=>Math.abs(a.balance||0)),1);
+  let totalDebit=0, totalCredit=0;
+  const rows = accounts.map(acc => {
+    const bal = acc.balance||0;
+    const dr  = bal>0 ? bal : 0;
+    const cr  = bal<0 ? Math.abs(bal) : 0;
+    totalDebit  += dr;
+    totalCredit += cr;
+    return `
+      <div class="tb-row">
+        <div>${acc.code} · ${acc.name}</div>
+        <div class="text-danger">${dr ? fmt.currency(dr) : '—'}</div>
+        <div class="text-success">${cr ? fmt.currency(cr) : '—'}</div>
+      </div>
+    `;
+  }).join('');
+  const footer = `
+    <div class="tb-row tb-footer">
+      <div>Total</div>
+      <div>${fmt.currency(totalDebit)}</div>
+      <div>${fmt.currency(totalCredit)}</div>
+    </div>
+  `;
+  document.getElementById('trial-balance-grid').innerHTML =
+    `<div class="tb-header" style="text-align:left;">Account</div>
+     <div class="tb-header">Debit</div>
+     <div class="tb-header">Credit</div>` + rows + footer;
+}
+
+function switchTab(tab) {
+  document.getElementById('view-journal').classList.toggle('hidden', tab!=='journal');
+  document.getElementById('view-trial').classList.toggle('hidden',   tab!=='trial');
+  document.getElementById('tb-journal').className = 'btn btn-sm ' + (tab==='journal'?'btn-primary':'btn-ghost');
+  document.getElementById('tb-trial').className   = 'btn btn-sm ' + (tab==='trial'  ?'btn-primary':'btn-ghost');
+}
+
+init();
+</script>
+</body>
+</html>

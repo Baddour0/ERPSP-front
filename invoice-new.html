@@ -1,0 +1,255 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8"/>
+  <meta name="viewport" content="width=device-width,initial-scale=1"/>
+  <title>New Invoice — ERPSB</title>
+  <meta name="description" content="Create a new sales invoice with line items"/>
+  <link rel="stylesheet" href="css/main.css"/>
+  <style>
+    .invoice-form-wrap { display:grid; grid-template-columns:1fr 320px; gap:20px; align-items:start; }
+    .lines-table th,.lines-table td { padding:8px 10px; }
+    .lines-table td input,.lines-table td select { background:var(--bg-base); }
+    .lines-table tbody tr:hover { background:var(--bg-elevated); }
+    .invoice-summary { background:var(--bg-elevated); border-radius:var(--radius); padding:18px; }
+    .summary-row { display:flex; justify-content:space-between; padding:6px 0; font-size:13.5px; border-bottom:1px solid var(--border); }
+    .summary-row:last-child { border-bottom:none; font-weight:800; font-size:15px; }
+    .add-line-btn { width:100%; padding:8px; border:1px dashed var(--border); border-radius:var(--radius-sm); background:transparent; color:var(--text-muted); font-size:13px; transition:all var(--transition); }
+    .add-line-btn:hover { border-color:var(--accent); color:var(--accent-light); }
+    @media(max-width:1024px){ .invoice-form-wrap{ grid-template-columns:1fr; } }
+  </style>
+</head>
+<body>
+<div id="page-root">
+  <div class="page-content">
+
+    <div class="page-header">
+      <div class="page-header-left">
+        <div class="breadcrumb"><a href="invoices.html">Invoices</a> / New Invoice</div>
+        <h1>Create Invoice</h1>
+      </div>
+      <div class="flex gap-2">
+        <a href="invoices.html" class="btn btn-ghost">Cancel</a>
+        <button class="btn btn-ghost" onclick="saveDraft()">💾 Save Draft</button>
+        <button class="btn btn-primary" onclick="submitInvoice()">Send Invoice →</button>
+      </div>
+    </div>
+
+    <div id="form-alert"></div>
+
+    <div class="invoice-form-wrap">
+      <!-- Left: Main Form -->
+      <div>
+        <!-- Invoice Meta -->
+        <div class="card mb-4">
+          <div class="card-header"><h3>Invoice Details</h3></div>
+          <div class="card-body">
+            <div class="form-row cols-3">
+              <div class="form-group">
+                <label class="form-label">Invoice Number</label>
+                <input class="form-control" id="inv-number" value="INV-2024-007" readonly style="opacity:0.6"/>
+              </div>
+              <div class="form-group">
+                <label class="form-label">Issue Date *</label>
+                <input class="form-control" id="inv-date" type="date" required/>
+              </div>
+              <div class="form-group">
+                <label class="form-label">Due Date</label>
+                <input class="form-control" id="inv-due" type="date"/>
+              </div>
+            </div>
+            <div class="form-row cols-2">
+              <div class="form-group">
+                <label class="form-label">Partner (Customer) *</label>
+                <select class="form-control" id="inv-partner" required onchange="calcTotals()">
+                  <option value="">— Select partner —</option>
+                </select>
+              </div>
+              <div class="form-group">
+                <label class="form-label">Status</label>
+                <select class="form-control" id="inv-status">
+                  <option value="Draft">Draft</option>
+                  <option value="Sent">Sent</option>
+                </select>
+              </div>
+            </div>
+            <div class="form-group">
+              <label class="form-label">Notes / Terms</label>
+              <textarea class="form-control" id="inv-notes" rows="2" placeholder="Payment terms, notes…"></textarea>
+            </div>
+          </div>
+        </div>
+
+        <!-- Line Items -->
+        <div class="card">
+          <div class="card-header">
+            <h3>Line Items</h3>
+            <button class="btn btn-ghost btn-sm" onclick="addLine()">+ Add Line</button>
+          </div>
+          <div class="card-body" style="padding:0">
+            <div class="table-wrap">
+              <table class="lines-table" style="width:100%;border-collapse:collapse;font-size:13px;">
+                <thead>
+                  <tr>
+                    <th style="width:40%">Description</th>
+                    <th>Qty</th>
+                    <th>Unit Price</th>
+                    <th>Tax %</th>
+                    <th>Total</th>
+                    <th></th>
+                  </tr>
+                </thead>
+                <tbody id="lines-body"></tbody>
+              </table>
+            </div>
+            <div style="padding:10px 14px;">
+              <button class="add-line-btn" onclick="addLine()">+ Add line item</button>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Right: Summary -->
+      <div>
+        <div class="card">
+          <div class="card-header"><h3>Summary</h3></div>
+          <div class="card-body">
+            <div class="invoice-summary">
+              <div class="summary-row"><span>Subtotal</span><span id="s-sub">EGP 0.00</span></div>
+              <div class="summary-row"><span>Tax</span><span id="s-tax">EGP 0.00</span></div>
+              <div class="summary-row"><span style="color:var(--accent-light)">Total</span><span id="s-total" style="color:var(--accent-light)">EGP 0.00</span></div>
+            </div>
+            <div class="mt-4">
+              <div class="form-group">
+                <label class="form-label">Currency</label>
+                <select class="form-control" id="inv-currency">
+                  <option value="EGP">🇪🇬 EGP — Egyptian Pound</option>
+                  <option value="USD">🇺🇸 USD — US Dollar</option>
+                  <option value="EUR">🇪🇺 EUR — Euro</option>
+                </select>
+              </div>
+            </div>
+            <div class="mt-2">
+              <button class="btn btn-primary w-full" style="justify-content:center" onclick="submitInvoice()">Send Invoice →</button>
+              <button class="btn btn-ghost w-full mt-2" style="justify-content:center" onclick="saveDraft()">Save as Draft</button>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<script src="js/app.js"></script>
+<script src="js/layout.js"></script>
+<script>
+renderLayout('New Invoice', '🧾');
+
+// Set today's date
+const today = new Date().toISOString().split('T')[0];
+document.getElementById('inv-date').value = today;
+const due = new Date(); due.setDate(due.getDate()+30);
+document.getElementById('inv-due').value = due.toISOString().split('T')[0];
+
+// Load partners
+async function loadPartners() {
+  const partners = (await api.partners.list()) || mock.partners;
+  const sel = document.getElementById('inv-partner');
+  partners.filter(p=>p.type==='Customer').forEach(p => {
+    sel.innerHTML += `<option value="${p.id}">${p.name}</option>`;
+  });
+}
+
+// Line items
+let lineId = 0;
+function addLine(desc='', qty=1, price=0, tax=10) {
+  lineId++;
+  const id = lineId;
+  const tr = document.createElement('tr');
+  tr.id = 'line-'+id;
+  tr.innerHTML = `
+    <td><input class="form-control" style="min-width:160px;" placeholder="Product or service description" value="${desc}" oninput="calcTotals()"/></td>
+    <td><input class="form-control" type="number" style="width:70px;" value="${qty}" min="1" oninput="calcTotals()"/></td>
+    <td><input class="form-control" type="number" style="width:110px;" value="${price}" min="0" step="0.01" oninput="calcTotals()"/></td>
+    <td>
+      <select class="form-control" style="width:80px;" onchange="calcTotals()">
+        <option value="0">0%</option>
+        <option value="5">5%</option>
+        <option value="10" ${tax==10?'selected':''}>10%</option>
+        <option value="14">14%</option>
+      </select>
+    </td>
+    <td style="font-weight:600;" id="lt-${id}">EGP 0.00</td>
+    <td><button class="btn btn-ghost btn-sm" onclick="removeLine(${id})">✕</button></td>
+  `;
+  document.getElementById('lines-body').appendChild(tr);
+  calcTotals();
+}
+
+function removeLine(id) {
+  document.getElementById('line-'+id)?.remove();
+  calcTotals();
+}
+
+function calcTotals() {
+  let sub=0, taxTotal=0;
+  document.querySelectorAll('#lines-body tr').forEach((tr,_) => {
+    const inputs = tr.querySelectorAll('input');
+    const qty   = parseFloat(inputs[1]?.value)||0;
+    const price = parseFloat(inputs[2]?.value)||0;
+    const taxPct= parseFloat(tr.querySelector('select')?.value)||0;
+    const lineTotal = qty * price;
+    const lineTax   = lineTotal * taxPct / 100;
+    sub += lineTotal; taxTotal += lineTax;
+    const ltEl = tr.querySelector('[id^="lt-"]');
+    if (ltEl) ltEl.textContent = fmt.currency(lineTotal + lineTax);
+  });
+  document.getElementById('s-sub').textContent   = fmt.currency(sub);
+  document.getElementById('s-tax').textContent   = fmt.currency(taxTotal);
+  document.getElementById('s-total').textContent = fmt.currency(sub+taxTotal);
+}
+
+function getInvoicePayload(status) {
+  const lines = [];
+  document.querySelectorAll('#lines-body tr').forEach(tr => {
+    const inputs = tr.querySelectorAll('input');
+    lines.push({
+      description: inputs[0]?.value,
+      quantity:    parseFloat(inputs[1]?.value)||0,
+      unitPrice:   parseFloat(inputs[2]?.value)||0,
+      taxRate:     parseFloat(tr.querySelector('select')?.value)||0,
+    });
+  });
+  return {
+    invoiceNumber: document.getElementById('inv-number').value,
+    issueDate:     document.getElementById('inv-date').value,
+    partnerId:     document.getElementById('inv-partner').value,
+    status:        status || document.getElementById('inv-status').value,
+    notes:         document.getElementById('inv-notes').value,
+    lines,
+  };
+}
+
+async function saveDraft() {
+  const payload = getInvoicePayload('Draft');
+  if (!payload.partnerId) { showToast('Please select a partner','danger'); return; }
+  await api.invoices.create(payload);
+  showToast('Draft saved');
+  setTimeout(()=>window.location.href='invoices.html', 800);
+}
+
+async function submitInvoice() {
+  const payload = getInvoicePayload('Sent');
+  if (!payload.partnerId) { showToast('Please select a partner','danger'); return; }
+  if (!payload.lines.length) { showToast('Add at least one line item','danger'); return; }
+  await api.invoices.create(payload);
+  showToast('Invoice sent!');
+  setTimeout(()=>window.location.href='invoices.html', 800);
+}
+
+// Default: 1 line
+addLine('Professional Services', 1, 5000, 14);
+loadPartners();
+</script>
+</body>
+</html>

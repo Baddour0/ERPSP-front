@@ -1,0 +1,235 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8"/>
+  <meta name="viewport" content="width=device-width,initial-scale=1"/>
+  <title>Partners — ERPSB</title>
+  <meta name="description" content="Manage customers and vendors in ERPSB ERP"/>
+  <link rel="stylesheet" href="css/main.css"/>
+  <style>
+    .partner-cards { display:grid; grid-template-columns:repeat(auto-fill,minmax(280px,1fr)); gap:16px; }
+    .partner-card {
+      background:var(--bg-card); border:1px solid var(--border);
+      border-radius:var(--radius-lg); padding:20px;
+      transition:all var(--transition); cursor:pointer;
+      position:relative; overflow:hidden;
+    }
+    .partner-card:hover { transform:translateY(-2px); box-shadow:var(--shadow); border-color:var(--border-strong); }
+    .partner-card::before { content:''; position:absolute; top:0; left:0; right:0; height:3px; }
+    .partner-card.Customer::before { background:linear-gradient(90deg,var(--accent),var(--accent-light)); }
+    .partner-card.Vendor::before   { background:linear-gradient(90deg,var(--warning),#FCD34D); }
+    .pc-avatar {
+      width:48px; height:48px; border-radius:12px;
+      display:flex; align-items:center; justify-content:center;
+      font-size:20px; font-weight:800; color:#fff; margin-bottom:14px;
+    }
+    .pc-name { font-size:15px; font-weight:700; margin-bottom:4px; }
+    .pc-meta { font-size:12px; color:var(--text-muted); margin-bottom:12px; line-height:1.7; }
+    .pc-footer { display:flex; align-items:center; gap:8px; padding-top:12px; border-top:1px solid var(--border); }
+    /* Modal */
+    .modal-overlay { position:fixed; inset:0; background:rgba(0,0,0,0.6); backdrop-filter:blur(4px); z-index:1000; display:flex; align-items:center; justify-content:center; }
+    .modal { background:var(--bg-surface); border:1px solid var(--border); border-radius:var(--radius-lg); padding:32px; width:90%; max-width:480px; box-shadow:var(--shadow-lg); }
+    .modal-title { font-size:18px; font-weight:700; margin-bottom:24px; }
+  </style>
+</head>
+<body>
+<div id="page-root">
+  <div class="page-content">
+
+    <div class="page-header">
+      <div class="page-header-left">
+        <div class="breadcrumb">Contacts / Partners</div>
+        <h1>Partners</h1>
+      </div>
+      <div class="flex gap-2">
+        <button class="btn btn-ghost btn-sm" onclick="toggleView()">⊞ Toggle View</button>
+        <button class="btn btn-primary" onclick="openModal()">+ New Partner</button>
+      </div>
+    </div>
+
+    <!-- KPIs -->
+    <div class="kpi-grid" style="grid-template-columns:repeat(3,1fr);margin-bottom:20px;" id="partner-kpis"></div>
+
+    <!-- Filters + Search -->
+    <div class="card mb-4">
+      <div class="filters-bar">
+        <button class="filter-chip active" data-f="all"      onclick="filterP('all',this)">All</button>
+        <button class="filter-chip"        data-f="Customer" onclick="filterP('Customer',this)">Customers</button>
+        <button class="filter-chip"        data-f="Vendor"   onclick="filterP('Vendor',this)">Vendors</button>
+        <div class="ml-auto">
+          <input class="form-control" style="width:220px;padding:5px 10px;font-size:12.5px;"
+                 placeholder="🔍 Search partners…" id="p-search" oninput="renderPartners()"/>
+        </div>
+      </div>
+    </div>
+
+    <!-- Cards -->
+    <div id="partner-grid" class="partner-cards"></div>
+
+    <!-- Table View (hidden by default) -->
+    <div id="partner-table-view" class="card hidden">
+      <div class="table-wrap">
+        <table id="p-table">
+          <thead>
+            <tr>
+              <th>Name</th><th>Tax ID</th><th>Address</th><th>Type</th><th>Invoices</th><th></th>
+            </tr>
+          </thead>
+          <tbody id="p-tbody"></tbody>
+        </table>
+      </div>
+    </div>
+
+  </div>
+</div>
+
+<!-- New Partner Modal -->
+<div class="modal-overlay hidden" id="modal">
+  <div class="modal">
+    <div class="modal-title">New Partner</div>
+    <div id="modal-alert"></div>
+    <div class="form-group">
+      <label class="form-label">Full Name *</label>
+      <input class="form-control" id="p-name" placeholder="Company or individual name"/>
+    </div>
+    <div class="form-row cols-2">
+      <div class="form-group">
+        <label class="form-label">Tax ID</label>
+        <input class="form-control" id="p-tax" placeholder="EG-XXXXXX"/>
+      </div>
+      <div class="form-group">
+        <label class="form-label">Type *</label>
+        <select class="form-control" id="p-type">
+          <option value="Customer">Customer</option>
+          <option value="Vendor">Vendor</option>
+        </select>
+      </div>
+    </div>
+    <div class="form-group">
+      <label class="form-label">Address</label>
+      <input class="form-control" id="p-addr" placeholder="City, Country"/>
+    </div>
+    <div class="flex gap-2 mt-4" style="justify-content:flex-end;">
+      <button class="btn btn-ghost" onclick="closeModal()">Cancel</button>
+      <button class="btn btn-primary" onclick="createPartner()">Save Partner</button>
+    </div>
+  </div>
+</div>
+
+<script src="js/app.js"></script>
+<script src="js/layout.js"></script>
+<script>
+renderLayout('Partners', '👥');
+
+let allPartners = [];
+let currentFilter = 'all';
+let cardView = true;
+
+const avatarColors = ['#6366F1','#10B981','#F59E0B','#EF4444','#3B82F6','#8B5CF6'];
+
+async function init() {
+  allPartners = (await api.partners.list()) || mock.partners;
+  renderKPIs();
+  renderPartners();
+}
+
+function renderKPIs() {
+  const customers = allPartners.filter(p=>p.type==='Customer').length;
+  const vendors   = allPartners.filter(p=>p.type==='Vendor').length;
+  document.getElementById('partner-kpis').innerHTML = [
+    { label:'Total Partners', value:allPartners.length, color:'accent',  icon:'👥' },
+    { label:'Customers',      value:customers,          color:'success', icon:'🤝' },
+    { label:'Vendors',        value:vendors,            color:'warning', icon:'📦' },
+  ].map(c=>`
+    <div class="kpi-card ${c.color}">
+      <div class="kpi-icon ${c.color}">${c.icon}</div>
+      <div class="kpi-label">${c.label}</div>
+      <div class="kpi-value">${c.value}</div>
+    </div>
+  `).join('');
+}
+
+function getFiltered() {
+  const q = (document.getElementById('p-search')?.value||'').toLowerCase();
+  return allPartners
+    .filter(p=>currentFilter==='all'||p.type===currentFilter)
+    .filter(p=>!q||p.name?.toLowerCase().includes(q)||p.taxId?.toLowerCase().includes(q));
+}
+
+function renderPartners() {
+  const partners = getFiltered();
+  const invMap = {};
+  mock.invoices.forEach(i=>{ const n=i.partner?.name; if(n) invMap[n]=(invMap[n]||0)+1; });
+
+  // Cards
+  document.getElementById('partner-grid').innerHTML = partners.length ? partners.map((p,i) => `
+    <div class="partner-card ${p.type}">
+      <div class="pc-avatar" style="background:${avatarColors[i%avatarColors.length]}">${p.name[0].toUpperCase()}</div>
+      <div class="pc-name">${p.name}</div>
+      <div class="pc-meta">
+        ${p.taxId ? '🏷 ' + p.taxId + '<br/>' : ''}
+        ${p.address ? '📍 ' + p.address : ''}
+      </div>
+      <div class="pc-footer">
+        ${partnerBadge(p.type)}
+        <span style="font-size:12px;color:var(--text-muted);margin-left:auto;">${invMap[p.name]||0} invoice(s)</span>
+      </div>
+    </div>
+  `).join('') : `<div class="empty-state" style="grid-column:1/-1;"><div class="empty-icon">👥</div><p>No partners found</p></div>`;
+
+  // Table
+  document.getElementById('p-tbody').innerHTML = partners.map(p => `
+    <tr>
+      <td><strong>${p.name}</strong></td>
+      <td class="muted font-mono">${p.taxId||'—'}</td>
+      <td class="muted">${p.address||'—'}</td>
+      <td>${partnerBadge(p.type)}</td>
+      <td class="muted">${invMap[p.name]||0}</td>
+      <td><button class="btn btn-ghost btn-sm" onclick="deletePartner('${p.id}')">🗑</button></td>
+    </tr>
+  `).join('');
+}
+
+function filterP(f,el) {
+  currentFilter=f;
+  document.querySelectorAll('[data-f]').forEach(b=>b.classList.remove('active'));
+  el.classList.add('active');
+  renderPartners();
+}
+
+function toggleView() {
+  cardView=!cardView;
+  document.getElementById('partner-grid').classList.toggle('hidden',!cardView);
+  document.getElementById('partner-table-view').classList.toggle('hidden',cardView);
+}
+
+function openModal() { document.getElementById('modal').classList.remove('hidden'); }
+function closeModal(){ document.getElementById('modal').classList.add('hidden'); }
+
+async function createPartner() {
+  const name = document.getElementById('p-name').value.trim();
+  if (!name) { showToast('Name is required','danger'); return; }
+  const payload = {
+    name, type:  document.getElementById('p-type').value,
+    taxId:       document.getElementById('p-tax').value,
+    address:     document.getElementById('p-addr').value,
+  };
+  await api.partners.create(payload);
+  allPartners.unshift({ id:'local-'+Date.now(), ...payload });
+  closeModal();
+  renderPartners(); renderKPIs();
+  showToast('Partner created');
+}
+
+async function deletePartner(id) {
+  if (!confirm('Delete this partner?')) return;
+  allPartners = allPartners.filter(p=>p.id!==id);
+  await api.delete('/api/partners/'+id);
+  renderPartners(); renderKPIs();
+  showToast('Partner deleted');
+}
+
+init();
+</script>
+</body>
+</html>

@@ -1,0 +1,206 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8"/>
+  <meta name="viewport" content="width=device-width,initial-scale=1"/>
+  <title>Invoices — ERPSB</title>
+  <meta name="description" content="Manage sales invoices — create, filter, and track payment status"/>
+  <link rel="stylesheet" href="css/main.css"/>
+</head>
+<body>
+<div id="page-root">
+  <div class="page-content">
+
+    <div class="page-header">
+      <div class="page-header-left">
+        <div class="breadcrumb">Finance / Invoices</div>
+        <h1>Invoices</h1>
+      </div>
+      <div class="flex gap-2">
+        <button class="btn btn-ghost btn-sm" onclick="exportCSV()">⬇ Export</button>
+        <a href="invoice-new.html" class="btn btn-primary">+ New Invoice</a>
+      </div>
+    </div>
+
+    <!-- Summary Strip -->
+    <div class="kpi-grid" style="grid-template-columns:repeat(4,1fr);margin-bottom:20px;" id="inv-kpis"></div>
+
+    <!-- Table Card -->
+    <div class="card">
+      <!-- Filters -->
+      <div class="filters-bar">
+        <button class="filter-chip active" data-filter="all"     onclick="filterInvoices('all',this)">All</button>
+        <button class="filter-chip"        data-filter="Draft"   onclick="filterInvoices('Draft',this)">Draft</button>
+        <button class="filter-chip"        data-filter="Sent"    onclick="filterInvoices('Sent',this)">Sent</button>
+        <button class="filter-chip"        data-filter="Paid"    onclick="filterInvoices('Paid',this)">Paid</button>
+        <button class="filter-chip"        data-filter="Overdue" onclick="filterInvoices('Overdue',this)">⚠ Overdue</button>
+        <div class="ml-auto flex gap-2">
+          <input id="inv-search" class="form-control" style="width:200px;padding:5px 10px;font-size:12.5px;"
+                 placeholder="🔍 Search invoices…" oninput="renderTable()"/>
+        </div>
+      </div>
+
+      <!-- Table -->
+      <div class="table-wrap">
+        <table id="inv-table">
+          <thead>
+            <tr>
+              <th><input type="checkbox" id="select-all" onchange="toggleAll(this)"/></th>
+              <th onclick="sortBy('invoiceNumber')" style="cursor:pointer">Invoice # ↕</th>
+              <th onclick="sortBy('issueDate')"     style="cursor:pointer">Date ↕</th>
+              <th>Partner</th>
+              <th>Sub Total</th>
+              <th>Tax</th>
+              <th onclick="sortBy('total')"         style="cursor:pointer">Total ↕</th>
+              <th>Status</th>
+              <th></th>
+            </tr>
+          </thead>
+          <tbody id="inv-tbody">
+            <tr><td colspan="9" class="text-center" style="padding:40px;">
+              <div class="skeleton" style="height:14px;width:60%;margin:0 auto 8px;"></div>
+              <div class="skeleton" style="height:14px;width:40%;margin:0 auto;"></div>
+            </td></tr>
+          </tbody>
+        </table>
+      </div>
+
+      <!-- Pagination -->
+      <div class="flex items-center gap-2" style="padding:14px 20px;border-top:1px solid var(--border);">
+        <span class="text-muted" id="inv-count" style="font-size:12.5px;"></span>
+        <div class="ml-auto flex gap-2" id="pagination"></div>
+      </div>
+    </div>
+
+  </div>
+</div>
+
+<script src="js/app.js"></script>
+<script src="js/layout.js"></script>
+<script>
+renderLayout('Invoices', '🧾');
+
+let allInvoices = [];
+let currentFilter = 'all';
+let currentSort   = { field: 'issueDate', asc: false };
+const PAGE_SIZE = 8;
+let currentPage = 1;
+
+async function init() {
+  allInvoices = (await api.invoices.list()) || mock.invoices;
+  renderKPIs();
+  renderTable();
+}
+
+function renderKPIs() {
+  const total   = allInvoices.reduce((s,i)=>s+(i.total||0),0);
+  const paid    = allInvoices.filter(i=>i.status==='Paid').reduce((s,i)=>s+(i.total||0),0);
+  const overdue = allInvoices.filter(i=>i.status==='Overdue').reduce((s,i)=>s+(i.total||0),0);
+  const draft   = allInvoices.filter(i=>i.status==='Draft').length;
+  document.getElementById('inv-kpis').innerHTML = [
+    { label:'Total Invoiced',  value:fmt.currency(total),   color:'accent',  icon:'💰' },
+    { label:'Collected',       value:fmt.currency(paid),    color:'success', icon:'✅' },
+    { label:'Overdue Amount',  value:fmt.currency(overdue), color:'danger',  icon:'⚠️' },
+    { label:'Drafts',          value:draft,                 color:'warning', icon:'📝' },
+  ].map(c=>`
+    <div class="kpi-card ${c.color}">
+      <div class="kpi-icon ${c.color}">${c.icon}</div>
+      <div class="kpi-label">${c.label}</div>
+      <div class="kpi-value">${c.value}</div>
+    </div>
+  `).join('');
+}
+
+function getFiltered() {
+  const q = (document.getElementById('inv-search')?.value||'').toLowerCase();
+  return allInvoices
+    .filter(i => currentFilter==='all' || i.status===currentFilter)
+    .filter(i => !q || i.invoiceNumber?.toLowerCase().includes(q) || i.partner?.name?.toLowerCase().includes(q))
+    .sort((a,b) => {
+      const av = a[currentSort.field]||'', bv = b[currentSort.field]||'';
+      const r = av < bv ? -1 : av > bv ? 1 : 0;
+      return currentSort.asc ? r : -r;
+    });
+}
+
+function renderTable() {
+  const rows = getFiltered();
+  const start = (currentPage-1)*PAGE_SIZE;
+  const page  = rows.slice(start, start+PAGE_SIZE);
+  document.getElementById('inv-count').textContent = `Showing ${page.length} of ${rows.length} invoices`;
+
+  document.getElementById('inv-tbody').innerHTML = page.length ? page.map(inv => `
+    <tr>
+      <td><input type="checkbox" class="row-check" data-id="${inv.id}"/></td>
+      <td><a href="invoice-detail.html?id=${inv.id}" style="color:var(--accent-light);font-weight:600;">${inv.invoiceNumber}</a></td>
+      <td class="muted">${fmt.date(inv.issueDate)}</td>
+      <td>${inv.partner?.name||'—'}</td>
+      <td class="muted">${fmt.currency(inv.subTotal)}</td>
+      <td class="muted">${fmt.currency(inv.taxAmount)}</td>
+      <td style="font-weight:700;">${fmt.currency(inv.total)}</td>
+      <td>${statusBadge(inv.status)}</td>
+      <td>
+        <div class="td-actions">
+          <a href="invoice-detail.html?id=${inv.id}" class="btn btn-ghost btn-sm">View</a>
+          <button class="btn btn-ghost btn-sm" onclick="deleteInvoice('${inv.id}')">🗑</button>
+        </div>
+      </td>
+    </tr>
+  `).join('') : `<tr><td colspan="9"><div class="empty-state">
+    <div class="empty-icon">🧾</div>
+    <p>No invoices found</p>
+  </div></td></tr>`;
+
+  renderPagination(rows.length);
+}
+
+function renderPagination(total) {
+  const pages = Math.ceil(total/PAGE_SIZE);
+  const pg = document.getElementById('pagination');
+  if (pages<=1){ pg.innerHTML=''; return; }
+  pg.innerHTML = Array.from({length:pages},(_,i)=>`
+    <button class="btn ${i+1===currentPage?'btn-primary':'btn-ghost'} btn-sm" onclick="goPage(${i+1})">${i+1}</button>
+  `).join('');
+}
+
+function goPage(p){ currentPage=p; renderTable(); }
+
+function filterInvoices(f,el) {
+  currentFilter=f; currentPage=1;
+  document.querySelectorAll('[data-filter]').forEach(b=>b.classList.remove('active'));
+  el.classList.add('active');
+  renderTable();
+}
+
+function sortBy(field) {
+  if (currentSort.field===field) currentSort.asc=!currentSort.asc;
+  else { currentSort.field=field; currentSort.asc=true; }
+  renderTable();
+}
+
+function toggleAll(cb) {
+  document.querySelectorAll('.row-check').forEach(c=>c.checked=cb.checked);
+}
+
+async function deleteInvoice(id) {
+  if (!confirm('Delete this invoice?')) return;
+  allInvoices = allInvoices.filter(i=>i.id!==id);
+  await api.delete('/api/invoices/'+id);
+  renderTable(); renderKPIs();
+  showToast('Invoice deleted');
+}
+
+function exportCSV() {
+  const rows = getFiltered();
+  const hdr  = 'Invoice#,Date,Partner,SubTotal,Tax,Total,Status\n';
+  const body = rows.map(i=>`${i.invoiceNumber},${i.issueDate},${i.partner?.name},${i.subTotal},${i.taxAmount},${i.total},${i.status}`).join('\n');
+  const a = document.createElement('a');
+  a.href = 'data:text/csv;charset=utf-8,' + encodeURIComponent(hdr+body);
+  a.download = 'invoices.csv';
+  a.click();
+}
+
+init();
+</script>
+</body>
+</html>

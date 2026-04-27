@@ -1,0 +1,179 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8"/>
+  <meta name="viewport" content="width=device-width,initial-scale=1"/>
+  <title>Chart of Accounts — ERPSB</title>
+  <meta name="description" content="View and manage the chart of accounts with balances"/>
+  <link rel="stylesheet" href="css/main.css"/>
+  <style>
+    .cat-colors { Asset:'#6366F1', Liability:'#EF4444', Equity:'#F59E0B', Income:'#10B981', Expense:'#94A3B8' }
+    .cat-header-badge {
+      display:inline-flex; align-items:center; gap:6px;
+      padding:4px 10px; border-radius:20px; font-size:11px; font-weight:700; text-transform:uppercase; letter-spacing:0.06em;
+    }
+    .cat-total {
+      margin-left:auto; font-size:13px; font-weight:700;
+    }
+    .account-code { font-family:'Courier New',monospace; font-size:12px; color:var(--text-muted); width:60px; }
+    .balance-bar-wrap { width:80px; height:4px; background:var(--bg-elevated); border-radius:2px; }
+    .balance-bar { height:100%; border-radius:2px; transition:width 0.6s ease; }
+  </style>
+</head>
+<body>
+<div id="page-root">
+  <div class="page-content">
+
+    <div class="page-header">
+      <div class="page-header-left">
+        <div class="breadcrumb">Finance / Accounts</div>
+        <h1>Chart of Accounts</h1>
+      </div>
+      <div class="flex gap-2">
+        <button class="btn btn-ghost btn-sm" onclick="expandAll()">⊞ Expand All</button>
+        <button class="btn btn-ghost btn-sm" onclick="collapseAll()">⊟ Collapse All</button>
+        <button class="btn btn-primary">+ New Account</button>
+      </div>
+    </div>
+
+    <!-- Balance Summary -->
+    <div class="kpi-grid" style="grid-template-columns:repeat(5,1fr);margin-bottom:20px;" id="acc-kpis"></div>
+
+    <!-- Search -->
+    <div class="card mb-4">
+      <div class="filters-bar">
+        <button class="filter-chip active" data-cat="all"       onclick="filterCat('all',this)">All</button>
+        <button class="filter-chip"        data-cat="Asset"     onclick="filterCat('Asset',this)">Assets</button>
+        <button class="filter-chip"        data-cat="Liability" onclick="filterCat('Liability',this)">Liabilities</button>
+        <button class="filter-chip"        data-cat="Equity"    onclick="filterCat('Equity',this)">Equity</button>
+        <button class="filter-chip"        data-cat="Income"    onclick="filterCat('Income',this)">Income</button>
+        <button class="filter-chip"        data-cat="Expense"   onclick="filterCat('Expense',this)">Expenses</button>
+        <div class="ml-auto">
+          <input class="form-control" id="acc-search" style="width:220px;padding:5px 10px;font-size:12.5px;"
+                 placeholder="🔍 Search accounts…" oninput="renderAccounts()"/>
+        </div>
+      </div>
+    </div>
+
+    <!-- Account Tree -->
+    <div id="accounts-tree"></div>
+
+  </div>
+</div>
+
+<script src="js/app.js"></script>
+<script src="js/layout.js"></script>
+<script>
+renderLayout('Chart of Accounts', '📒');
+
+const CAT_CONFIG = {
+  Asset:     { icon:'🏦', color:'#6366F1', label:'Assets' },
+  Liability: { icon:'💳', color:'#EF4444', label:'Liabilities' },
+  Equity:    { icon:'⚖️',  color:'#F59E0B', label:'Equity' },
+  Income:    { icon:'📈', color:'#10B981', label:'Income' },
+  Expense:   { icon:'📉', color:'#94A3B8', label:'Expenses' },
+};
+
+let allAccounts = [];
+let currentCat  = 'all';
+const collapsed = new Set();
+
+async function init() {
+  allAccounts = (await api.accounts.list()) || mock.accounts;
+  renderKPIs();
+  renderAccounts();
+}
+
+function renderKPIs() {
+  const categories = ['Asset','Liability','Equity','Income','Expense'];
+  document.getElementById('acc-kpis').innerHTML = categories.map(cat => {
+    const total = allAccounts.filter(a=>a.category===cat).reduce((s,a)=>s+Math.abs(a.balance||0),0);
+    const cfg   = CAT_CONFIG[cat];
+    return `
+      <div class="kpi-card" style="border-top:2px solid ${cfg.color}">
+        <div class="kpi-icon" style="background:${cfg.color}22;color:${cfg.color}">${cfg.icon}</div>
+        <div class="kpi-label">${cfg.label}</div>
+        <div class="kpi-value" style="font-size:18px;">${fmt.currency(total)}</div>
+      </div>
+    `;
+  }).join('');
+}
+
+function getFiltered() {
+  const q = (document.getElementById('acc-search')?.value||'').toLowerCase();
+  return allAccounts
+    .filter(a => currentCat==='all' || a.category===currentCat)
+    .filter(a => !q || a.name?.toLowerCase().includes(q) || a.code?.toLowerCase().includes(q));
+}
+
+function renderAccounts() {
+  const accounts  = getFiltered();
+  const categories= [...new Set(accounts.map(a=>a.category))];
+  const maxAbs    = Math.max(...accounts.map(a=>Math.abs(a.balance||0)),1);
+
+  const html = categories.map(cat => {
+    const catAccs = accounts.filter(a=>a.category===cat);
+    const catTotal= catAccs.reduce((s,a)=>s+(a.balance||0),0);
+    const cfg     = CAT_CONFIG[cat] || { icon:'📄', color:'#94A3B8', label:cat };
+    const isOpen  = !collapsed.has(cat);
+
+    const rows = catAccs.map(acc => {
+      const bal      = acc.balance||0;
+      const isPos    = bal >= 0;
+      const barWidth = Math.round(Math.abs(bal)/maxAbs*100);
+      return `
+        <div class="account-row">
+          <div style="display:flex;align-items:center;gap:10px;">
+            <span class="account-code">${acc.code}</span>
+            <span>${acc.name}</span>
+          </div>
+          <div class="balance-bar-wrap">
+            <div class="balance-bar" style="width:${barWidth}%;background:${isPos?cfg.color:'#EF4444'}"></div>
+          </div>
+          <div class="account-balance ${isPos?'positive':'negative'}">${fmt.currency(Math.abs(bal))}</div>
+        </div>
+      `;
+    }).join('');
+
+    return `
+      <div class="account-group card mb-3">
+        <div class="account-category-header" onclick="toggleCat('${cat}')">
+          <span style="font-size:16px;">${cfg.icon}</span>
+          <span class="cat-header-badge" style="background:${cfg.color}22;color:${cfg.color}">${cfg.label}</span>
+          <span style="color:var(--text-muted);font-size:12px;">${catAccs.length} account(s)</span>
+          <span class="cat-total ${catTotal>=0?'text-success':'text-danger'}">${fmt.currency(Math.abs(catTotal))}</span>
+          <span style="color:var(--text-muted);margin-left:8px;font-size:12px;">${isOpen?'▲':'▼'}</span>
+        </div>
+        <div id="cat-body-${cat}" style="display:${isOpen?'block':'none'}">
+          <div style="padding:0 8px 8px;">
+            <div style="display:grid;grid-template-columns:1fr 80px 100px;padding:6px 14px 6px 36px;font-size:10px;text-transform:uppercase;letter-spacing:0.06em;color:var(--text-muted);">
+              <span>Account Name</span><span>Balance Bar</span><span style="text-align:right;">Balance</span>
+            </div>
+            ${rows}
+          </div>
+        </div>
+      </div>
+    `;
+  }).join('');
+
+  document.getElementById('accounts-tree').innerHTML = html || `<div class="empty-state"><div class="empty-icon">📒</div><p>No accounts found</p></div>`;
+}
+
+function toggleCat(cat) {
+  if (collapsed.has(cat)) collapsed.delete(cat); else collapsed.add(cat);
+  renderAccounts();
+}
+function expandAll()  { collapsed.clear(); renderAccounts(); }
+function collapseAll(){ allAccounts.map(a=>a.category).forEach(c=>collapsed.add(c)); renderAccounts(); }
+
+function filterCat(f,el) {
+  currentCat=f;
+  document.querySelectorAll('[data-cat]').forEach(b=>b.classList.remove('active'));
+  el.classList.add('active');
+  renderAccounts();
+}
+
+init();
+</script>
+</body>
+</html>
